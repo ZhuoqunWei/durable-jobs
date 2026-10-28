@@ -1,0 +1,89 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: postgres
+spec:
+  persistentVolumeClaimRetentionPolicy:
+    whenDeleted: Retain
+    whenScaled: Retain
+  template:
+    spec:
+      serviceAccountName: durable-jobs
+      nodeSelector:
+        kubernetes.io/arch: amd64
+        kubernetes.io/os: linux
+      securityContext:
+        fsGroupChangePolicy: OnRootMismatch
+      containers:
+        - name: postgres
+          imagePullPolicy: IfNotPresent
+          args:
+            - postgres
+            - -c
+            - ssl=on
+            - -c
+            - ssl_cert_file=/etc/postgres-tls/tls.crt
+            - -c
+            - ssl_key_file=/etc/postgres-tls/tls.key
+            - -c
+            - ssl_min_protocol_version=TLSv1.2
+            - -c
+            - hba_file=/etc/postgres-bootstrap/pg_hba.conf
+            - -c
+            - password_encryption=scram-sha-256
+          envFrom:
+            - configMapRef:
+                name: database-config
+          env:
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: postgres-admin
+                  key: password
+            - name: APP_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: database-credentials
+                  key: password
+          startupProbe:
+            exec:
+              command: [pg_isready, -U, postgres, -d, durable_jobs]
+          readinessProbe:
+            exec:
+              command: [pg_isready, -U, postgres, -d, durable_jobs]
+          volumeMounts:
+            - name: bootstrap
+              mountPath: /docker-entrypoint-initdb.d
+              readOnly: true
+            - name: database-auth
+              mountPath: /etc/postgres-bootstrap
+              readOnly: true
+            - name: tls
+              mountPath: /etc/postgres-tls
+              readOnly: true
+      volumes:
+        - name: bootstrap
+          configMap:
+            name: database-bootstrap
+            items:
+              - key: 10-role.sql
+                path: 10-role.sql
+        - name: database-auth
+          configMap:
+            name: database-bootstrap
+            items:
+              - key: pg_hba.conf
+                path: pg_hba.conf
+        - name: tls
+          secret:
+            secretName: postgres-tls
+            defaultMode: 0440
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: durable-jobs-gp3-retain
+        resources:
+          requests:
+            storage: 10Gi

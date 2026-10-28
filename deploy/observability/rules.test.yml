@@ -1,0 +1,61 @@
+rule_files:
+  - rules.yml
+evaluation_interval: 5s
+tests:
+  - interval: 5s
+    input_series:
+      - series: 'durable_jobs_queue_depth{job="durable-jobs",instance="api:8085"}'
+        values: '0+2x12'
+      - series: 'durable_jobs_terminal_total{job="durable-jobs",instance="api:8085",outcome="failed"}'
+        values: '0+1x12'
+      - series: 'durable_jobs_terminal_total{job="durable-jobs",instance="api:8085",outcome="succeeded"}'
+        values: '0+2x12'
+      - series: 'durable_jobs_completion_latency_seconds_bucket{job="durable-jobs",instance="api:8085",le="5"}'
+        values: '0+0x12'
+      - series: 'durable_jobs_completion_latency_seconds_bucket{job="durable-jobs",instance="api:8085",le="120"}'
+        values: '0+1x12'
+      - series: 'durable_jobs_completion_latency_seconds_bucket{job="durable-jobs",instance="api:8085",le="+Inf"}'
+        values: '0+1x12'
+    alert_rule_test:
+      - eval_time: 40s
+        alertname: JobCompletionLatencyHigh
+        exp_alerts:
+          - exp_labels:
+              job: durable-jobs
+              instance: api:8085
+              severity: warning
+            exp_annotations:
+              summary: Recent p95 enqueue-to-terminal latency exceeds 5 seconds
+      - eval_time: 40s
+        alertname: JobQueueGrowing
+        exp_alerts:
+          - exp_labels:
+              job: durable-jobs
+              instance: api:8085
+              severity: warning
+            exp_annotations:
+              summary: Queue is growing; inspect worker heartbeat and database latency
+      - eval_time: 40s
+        alertname: JobFailureRateHigh
+        exp_alerts:
+          - exp_labels:
+              job: durable-jobs
+              instance: api:8085
+              severity: warning
+            exp_annotations:
+              summary: More than 5 percent of recent terminal jobs failed
+  - interval: 5s
+    input_series:
+      - series: 'durable_jobs_slo_start_eligible{job="durable-jobs",instance="api:8085"}'
+        values: '0 10 10'
+      - series: 'durable_jobs_slo_start_good{job="durable-jobs",instance="api:8085"}'
+        values: '0 5 5'
+    promql_expr_test:
+      - eval_time: 0s
+        expr: durable_jobs:slo_start_ratio
+        exp_samples: []
+      - eval_time: 10s
+        expr: durable_jobs:slo_start_ratio
+        exp_samples:
+          - labels: 'durable_jobs:slo_start_ratio{job="durable-jobs",instance="api:8085"}'
+            value: 0.5

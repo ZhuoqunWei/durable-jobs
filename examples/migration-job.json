@@ -1,0 +1,8 @@
+{
+  "type": "migrate_campaign",
+  "payload": {
+    "campaign_id": "campaign_42",
+    "category": "Pets",
+    "created_at": "08/31/2026"
+  }
+}

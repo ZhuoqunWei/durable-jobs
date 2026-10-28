@@ -1,0 +1,32 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: worker
+spec:
+  progressDeadlineSeconds: 300
+  template:
+    spec:
+      serviceAccountName: durable-jobs
+      nodeSelector:
+        kubernetes.io/arch: amd64
+        kubernetes.io/os: linux
+      volumes:
+        - name: database-ca
+          secret:
+            secretName: database-ca
+      containers:
+        - name: worker
+          imagePullPolicy: IfNotPresent
+          envFrom:
+            - configMapRef:
+                name: database-client-config
+          env:
+            - name: PGPASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: database-credentials
+                  key: password
+          volumeMounts:
+            - name: database-ca
+              mountPath: /etc/database-ca
+              readOnly: true

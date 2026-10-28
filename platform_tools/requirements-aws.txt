@@ -1,0 +1,2 @@
+# YAML parsing for offline Kubernetes configuration checks only.
+PyYAML==6.0.3

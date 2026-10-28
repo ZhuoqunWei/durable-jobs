@@ -1,0 +1,38 @@
+[
+  {
+    "name": "pets_legacy_date",
+    "payload": {"campaign_id":"fixture_pets","category":"Pets","created_at":"08/31/2026"},
+    "status": "succeeded",
+    "result": {"campaign_id":"fixture_pets","category_id":"animals","created_date":"2026-08-31","schema_version":1}
+  },
+  {
+    "name": "medical_leap_day",
+    "payload": {"campaign_id":"fixture_medical","category":"Medical","created_at":"02/29/2024"},
+    "status": "succeeded",
+    "result": {"campaign_id":"fixture_medical","category_id":"medical","created_date":"2024-02-29","schema_version":1}
+  },
+  {
+    "name": "education_iso_date",
+    "payload": {"campaign_id":"fixture_education","category":"Education","created_at":"2026-09-15"},
+    "status": "succeeded",
+    "result": {"campaign_id":"fixture_education","category_id":"education","created_date":"2026-09-15","schema_version":1}
+  },
+  {
+    "name": "invalid_calendar_date",
+    "payload": {"campaign_id":"fixture_bad_date","category":"Pets","created_at":"02/29/2026"},
+    "status": "failed",
+    "failure_code": "invalid_campaign"
+  },
+  {
+    "name": "unknown_category",
+    "payload": {"campaign_id":"fixture_bad_category","category":"Travel","created_at":"2026-09-15"},
+    "status": "failed",
+    "failure_code": "invalid_campaign"
+  },
+  {
+    "name": "unexpected_field",
+    "payload": {"campaign_id":"fixture_extra_field","category":"Pets","created_at":"2026-09-15","extra":"must not be silently lost"},
+    "status": "failed",
+    "failure_code": "invalid_campaign"
+  }
+]

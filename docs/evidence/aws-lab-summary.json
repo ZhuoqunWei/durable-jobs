@@ -1,0 +1,40 @@
+{
+  "measurement_date_utc": "2026-09-29",
+  "exported_on": "2026-10-27",
+  "scope": "Synthetic single-node AWS EKS lab; historical results, not a fresh cloud run or production capacity test.",
+  "steady_load": {
+    "submitted": 600,
+    "accepted": 600,
+    "succeeded": 600,
+    "failed": 0,
+    "request_errors": 0,
+    "unfinished": 0,
+    "wall_seconds": 63.577,
+    "completion_seconds": {
+      "p50": 0.508911,
+      "p95": 0.959674,
+      "p99": 0.998319
+    },
+    "target_requests_per_second": 10
+  },
+  "recovery_drills": {
+    "worker-crash": {
+      "status": "passed",
+      "recovery_seconds": 33.252
+    },
+    "database-restart": {
+      "status": "passed",
+      "recovery_seconds": 13.446
+    },
+    "bad-deploy": {
+      "status": "passed",
+      "recovery_seconds": 6.499
+    }
+  },
+  "limitations": [
+    "Database restart retained the same persistent volume.",
+    "Bad rollout was restored by the test driver, not GitHub cloud CD.",
+    "Six failure scenarios; load was a separate check.",
+    "Numeric allowlist export; private operational evidence remains local."
+  ]
+}

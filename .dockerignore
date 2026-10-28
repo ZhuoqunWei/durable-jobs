@@ -1,0 +1,11 @@
+# Allowlist: .env, Git metadata, reports and local files never enter the context.
+*
+!Dockerfile
+!.dockerignore
+!Makefile
+!go.mod
+!go.sum
+!cmd/
+!cmd/**
+!internal/
+!internal/**

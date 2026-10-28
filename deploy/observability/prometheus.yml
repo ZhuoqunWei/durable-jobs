@@ -1,0 +1,11 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+rule_files:
+  - /etc/prometheus/rules.yml
+scrape_configs:
+  # The API exports one shared database snapshot: do not sum replicas.
+  - job_name: durable-jobs
+    scrape_timeout: 3s
+    static_configs:
+      - targets: ['api:8085']

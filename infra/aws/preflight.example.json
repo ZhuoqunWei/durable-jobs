@@ -1,0 +1,17 @@
+{
+  "account_id": null,
+  "region": null,
+  "profile": null,
+  "cluster_name": "durable-jobs-lab",
+  "kubernetes_version": "1.35",
+  "addon_versions": {
+    "pod_identity_agent": null,
+    "vpc_cni": null,
+    "kube_proxy": null,
+    "coredns": null,
+    "ebs_csi": null
+  },
+  "state_bucket": null,
+  "image": null,
+  "certificate_arn": null
+}

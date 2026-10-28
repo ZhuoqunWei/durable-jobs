@@ -1,0 +1,11 @@
+# Only public source, tests and the provider checksum lock enter the build.
+*
+!.dockerignore
+!Dockerfile
+!*.tf
+!.terraform.lock.hcl
+!check.sh
+!tests/
+!tests/*.tftest.hcl
+!reference/
+!reference/alb-iam-v3.5.0.json

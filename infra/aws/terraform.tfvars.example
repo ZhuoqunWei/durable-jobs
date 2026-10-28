@@ -1,0 +1,22 @@
+# Fictional account; this file is not loaded automatically. Do not enable a real
+# run until the account, cost, access, state and teardown checklist is approved.
+deployment_approved = false
+expected_account_id = "111122223333"
+operator_role_arn   = "arn:aws:iam::111122223333:role/lab-operator"
+region              = "us-west-2"
+availability_zones  = ["us-west-2a", "us-west-2b"]
+nat_mode            = "single"
+
+# Intentionally invalid until reviewed using describe-addon-versions and
+# describe-addon-configuration in the approved region/account (see docs/15).
+# Test fixtures are NOT recommended deployment versions.
+addon_versions = {
+  pod_identity_agent = ""
+  ebs_csi            = ""
+  vpc_cni            = ""
+  kube_proxy         = ""
+  coredns            = ""
+}
+
+# Remains null until the controller creates an ALB and its ownership is checked.
+published_alb_arn = null

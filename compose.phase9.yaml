@@ -1,0 +1,77 @@
+# Disposable validation stack. No host ports, bind mounts or persistent volumes.
+# Deliberately separate from compose.yaml and the user's application database.
+x-runtime: &runtime
+  image: ${PHASE9_IMAGE:?Run make container-check}
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  pids_limit: 64
+  mem_limit: 128m
+  cpus: 1
+  environment:
+    DATABASE_URL: postgres://phase9:phase9_test_only@postgres:5432/phase9?sslmode=disable
+
+services:
+  postgres:
+    image: postgres:17.11@sha256:f4c66b820c6f974249089d3d16d86a3698eae11e8746eb6644b2271031e91232
+    environment:
+      POSTGRES_USER: phase9
+      POSTGRES_PASSWORD: phase9_test_only
+      POSTGRES_DB: phase9
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -U phase9 -d phase9"]
+      interval: 1s
+      timeout: 3s
+      retries: 30
+    stop_grace_period: 10s
+
+  checks:
+    image: ${PHASE9_CHECKS_IMAGE:?Run make container-check}
+    environment:
+      DATABASE_URL: postgres://phase9:phase9_test_only@postgres:5432/phase9?sslmode=disable
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  migrate:
+    <<: *runtime
+    entrypoint: [/migrate]
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  api:
+    <<: *runtime
+    healthcheck:
+      test: [CMD, /smoke, -url, "http://127.0.0.1:8085", -ready-only, -timeout, 3s]
+      interval: 2s
+      timeout: 4s
+      retries: 15
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  worker:
+    <<: *runtime
+    entrypoint: [/worker]
+    command: [-processor, builtin]
+    stop_grace_period: 10s
+    depends_on:
+      postgres:
+        condition: service_healthy
+      migrate:
+        condition: service_completed_successfully
+
+  smoke:
+    <<: *runtime
+    entrypoint: [/smoke]
+    command: [-url, "http://api:8085", -timeout, 30s]
+    depends_on:
+      api:
+        condition: service_healthy
+      worker:
+        condition: service_started

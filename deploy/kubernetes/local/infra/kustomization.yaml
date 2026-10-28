@@ -1,0 +1,23 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+namespace: durable-jobs-lab
+resources:
+  - ../../base/infra
+  - namespace.yaml
+configMapGenerator:
+  - name: database-config
+    literals:
+      - POSTGRES_USER=lab
+      - POSTGRES_DB=lab
+      - PGDATA=/var/lib/postgresql/data/pgdata
+  - name: app-config
+    literals:
+      - HTTP_ADDR=0.0.0.0:8085
+secretGenerator:
+  - name: database-secret
+    literals:
+      # Deliberately public, disposable LOCAL credentials. Never use on AWS.
+      - POSTGRES_PASSWORD=local_lab_only
+      - DATABASE_URL=postgres://lab:local_lab_only@postgres:5432/lab?sslmode=disable
+generatorOptions:
+  disableNameSuffixHash: true

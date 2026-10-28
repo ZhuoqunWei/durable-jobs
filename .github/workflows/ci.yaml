@@ -1,0 +1,169 @@
+name: CI
+
+on:
+  workflow_dispatch:
+    inputs:
+      publish_image:
+        description: Publish the tested image to GHCR after all checks pass
+        type: boolean
+        default: false
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  checks:
+    name: Phase 9 checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    env:
+      PHASE9_IMAGE: durable-jobs-phase9:sha-${{ github.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Lint, vet, race tests, integration tests, image build and container smoke
+        run: make container-check
+      - name: Python platform regression tests (no cluster or cloud credentials)
+        run: python3 -m unittest discover -s platform_tools -p 'test_*.py' -v
+      - name: Validate GitHub workflow syntax
+        run: make workflow-check
+      - name: Prometheus configuration, alert and SLO regression tests
+        run: make monitoring-check
+      - name: Save the exact tested runtime image
+        run: docker save --output .local/phase9/runtime-image.tar "$PHASE9_IMAGE"
+      - name: Retain tested image for trusted publication
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: phase9-tested-image
+          path: .local/phase9/runtime-image.tar
+          if-no-files-found: error
+          retention-days: 1
+      - name: Retain verification evidence even after failure
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: phase9-evidence
+          path: .local/phase9/run.*/
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 7
+
+  infrastructure:
+    name: Offline AWS infrastructure checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Format, validate and provider-mocked plans (no AWS credentials)
+        run: make infra-check
+      - name: AWS application configuration and disposable local TLS checks
+        run: make aws-local-check
+      - name: Retain infrastructure evidence even after failure
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: phase11-evidence
+          path: |
+            .local/phase11/run.*/
+            .local/phase11b/config.*/
+            .local/phase11b/runtime.*/result.json
+            .local/phase11b/runtime.*/*.log
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 7
+
+  recovery-demo:
+    name: Disposable Kubernetes recovery demo
+    needs: checks
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      TESTED_IMAGE: durable-jobs-phase9:sha-${{ github.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: phase9-tested-image
+          path: image
+      - name: Load the tested image and install pinned local kind
+        run: |
+          docker load --input image/runtime-image.tar
+          make lab-tools
+      - name: Fresh deployment, real worker interruption, recovery and owned-cluster cleanup
+        run: python3 platform_tools/release_demo.py --run --image "$TESTED_IMAGE"
+      - name: Retain safe local demo evidence (never kubeconfig)
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: phase13-demo-evidence
+          path: |
+            .local/phase13/run-*/report.json
+            .local/phase13/run-*/report.sha256
+            .local/phase13/run-*/ownership.json
+            .local/phase13/run-*/*.log
+          include-hidden-files: true
+          if-no-files-found: warn
+          retention-days: 7
+
+  required-checks:
+    name: Required checks
+    needs: [checks, infrastructure, recovery-demo]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Fail if any required job failed, was cancelled, or was skipped
+        env:
+          CHECKS: ${{ needs.checks.result }}
+          INFRASTRUCTURE: ${{ needs.infrastructure.result }}
+          RECOVERY_DEMO: ${{ needs.recovery-demo.result }}
+        run: |
+          test "$CHECKS" = success
+          test "$INFRASTRUCTURE" = success
+          test "$RECOVERY_DEMO" = success
+
+  publish:
+    name: Publish verified image
+    needs: required-checks
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && inputs.publish_image
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      packages: write
+    env:
+      TESTED_IMAGE: durable-jobs-phase9:sha-${{ github.sha }}
+      REPOSITORY: ${{ github.repository }}
+      REVISION: ${{ github.sha }}
+    steps:
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: phase9-tested-image
+          path: image
+      - name: Load tested image and publish a commit-SHA tag
+        env:
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REGISTRY_USER: ${{ github.actor }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          registry_image="ghcr.io/${REPOSITORY,,}:sha-${REVISION}"
+          docker load --input image/runtime-image.tar
+          docker image inspect "$TESTED_IMAGE" >/dev/null
+          docker tag "$TESTED_IMAGE" "$registry_image"
+          trap 'docker logout ghcr.io >/dev/null 2>&1 || true' EXIT
+          printf '%s' "$REGISTRY_TOKEN" | docker login ghcr.io -u "$REGISTRY_USER" --password-stdin
+          docker push "$registry_image"
+          docker image inspect "$registry_image" --format '{{json .RepoDigests}}'

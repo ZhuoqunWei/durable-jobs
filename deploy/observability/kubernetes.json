@@ -1,0 +1,375 @@
+{
+  "apiVersion": "v1",
+  "kind": "List",
+  "items": [
+    {
+      "apiVersion": "v1",
+      "kind": "ConfigMap",
+      "metadata": {
+        "name": "prometheus-config",
+        "namespace": "durable-jobs-aws",
+        "labels": {
+          "part-of": "durable-jobs-reliability"
+        }
+      },
+      "data": {
+        "prometheus.yml": "global:\n  scrape_interval: 5s\n  evaluation_interval: 5s\nrule_files:\n  - /etc/prometheus/rules.yml\nscrape_configs:\n  # The API exports one shared database snapshot: do not sum replicas.\n  - job_name: durable-jobs\n    scrape_timeout: 3s\n    static_configs:\n      - targets: ['api:8085']\n",
+        "rules.yml": "groups:\n  - name: lab-reliability\n    rules:\n      - record: durable_jobs:slo_start_ratio\n        expr: (durable_jobs_slo_start_good / durable_jobs_slo_start_eligible) and (durable_jobs_slo_start_eligible > 0)\n      - record: durable_jobs:slo_completion_ratio\n        expr: (durable_jobs_slo_completion_good / durable_jobs_slo_completion_eligible) and (durable_jobs_slo_completion_eligible > 0)\n      - alert: JobQueueGrowing\n        expr: durable_jobs_queue_depth > 5 and delta(durable_jobs_queue_depth[1m]) > 0\n        for: 15s\n        labels:\n          severity: warning\n        annotations:\n          summary: Queue is growing; inspect worker heartbeat and database latency\n      - alert: JobFailureRateHigh\n        expr: sum without(outcome) (increase(durable_jobs_terminal_total{outcome=\"failed\"}[2m])) / clamp_min(sum without(outcome) (increase(durable_jobs_terminal_total[2m])), 1) > 0.05\n        for: 15s\n        labels:\n          severity: warning\n        annotations:\n          summary: More than 5 percent of recent terminal jobs failed\n      - alert: JobMetricsUnavailable\n        expr: up{job=\"durable-jobs\"} == 0\n        for: 15s\n        labels:\n          severity: warning\n        annotations:\n          summary: Metrics unavailable; a database outage can also cause this\n      - alert: JobCompletionLatencyHigh\n        expr: histogram_quantile(0.95, rate(durable_jobs_completion_latency_seconds_bucket[1m])) > 5\n        for: 15s\n        labels:\n          severity: warning\n        annotations:\n          summary: Recent p95 enqueue-to-terminal latency exceeds 5 seconds\n"
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "ConfigMap",
+      "metadata": {
+        "name": "grafana-provisioning",
+        "namespace": "durable-jobs-aws",
+        "labels": {
+          "part-of": "durable-jobs-reliability"
+        }
+      },
+      "data": {
+        "datasources.yml": "apiVersion: 1\ndatasources:\n  - name: Lab Prometheus\n    uid: lab-prometheus\n    type: prometheus\n    access: proxy\n    url: http://prometheus:9090\n    isDefault: true\n    editable: false\n",
+        "dashboards.yml": "apiVersion: 1\nproviders:\n  - name: lab\n    type: file\n    disableDeletion: true\n    options:\n      path: /etc/grafana/dashboards\n",
+        "dashboard.json": "{\"uid\": \"durable-jobs-lab\", \"title\": \"Durable Jobs \\u2014 reliability lab\", \"schemaVersion\": 39, \"version\": 1, \"editable\": false, \"refresh\": \"5s\", \"time\": {\"from\": \"now-30m\", \"to\": \"now\"}, \"panels\": [{\"id\": 1, \"title\": \"Queue depth\", \"type\": \"timeseries\", \"datasource\": {\"type\": \"prometheus\", \"uid\": \"lab-prometheus\"}, \"gridPos\": {\"x\": 0, \"y\": 0, \"w\": 12, \"h\": 8}, \"targets\": [{\"refId\": \"A\", \"expr\": \"durable_jobs_queue_depth\"}, {\"refId\": \"B\", \"expr\": \"durable_jobs_running\"}], \"fieldConfig\": {\"defaults\": {}, \"overrides\": []}, \"options\": {}}, {\"id\": 2, \"title\": \"Lifetime p95 latency (seconds)\", \"type\": \"timeseries\", \"datasource\": {\"type\": \"prometheus\", \"uid\": \"lab-prometheus\"}, \"gridPos\": {\"x\": 12, \"y\": 0, \"w\": 12, \"h\": 8}, \"targets\": [{\"refId\": \"A\", \"expr\": \"histogram_quantile(0.95, durable_jobs_start_latency_seconds_bucket)\"}, {\"refId\": \"B\", \"expr\": \"histogram_quantile(0.95, durable_jobs_completion_latency_seconds_bucket)\"}], \"fieldConfig\": {\"defaults\": {}, \"overrides\": []}, \"options\": {}}, {\"id\": 3, \"title\": \"Persisted terminal jobs\", \"type\": \"timeseries\", \"datasource\": {\"type\": \"prometheus\", \"uid\": \"lab-prometheus\"}, \"gridPos\": {\"x\": 0, \"y\": 8, \"w\": 12, \"h\": 8}, \"targets\": [{\"refId\": \"A\", \"expr\": \"durable_jobs_terminal_total\"}], \"fieldConfig\": {\"defaults\": {}, \"overrides\": []}, \"options\": {}}, {\"id\": 4, \"title\": \"Worker heartbeat age / active workers\", \"type\": \"timeseries\", \"datasource\": {\"type\": \"prometheus\", \"uid\": \"lab-prometheus\"}, \"gridPos\": {\"x\": 12, \"y\": 8, \"w\": 12, \"h\": 8}, \"targets\": [{\"refId\": \"A\", \"expr\": \"durable_jobs_worker_heartbeat_age_seconds\"}, {\"refId\": \"B\", \"expr\": \"durable_jobs_active_workers\"}], \"fieldConfig\": {\"defaults\": {}, \"overrides\": []}, \"options\": {}}]}"
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "prometheus",
+        "namespace": "durable-jobs-aws",
+        "labels": {
+          "part-of": "durable-jobs-reliability"
+        }
+      },
+      "spec": {
+        "replicas": 1,
+        "strategy": {
+          "type": "Recreate"
+        },
+        "selector": {
+          "matchLabels": {
+            "app": "prometheus"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "prometheus"
+            }
+          },
+          "spec": {
+            "automountServiceAccountToken": false,
+            "nodeSelector": {
+              "kubernetes.io/arch": "amd64"
+            },
+            "securityContext": {
+              "runAsNonRoot": true,
+              "runAsUser": 65534,
+              "runAsGroup": 65534,
+              "fsGroup": 65534,
+              "seccompProfile": {
+                "type": "RuntimeDefault"
+              }
+            },
+            "containers": [
+              {
+                "name": "prometheus",
+                "image": "prom/prometheus:v3.15.0@sha256:efd719c99d83b060d9daefdcf00360461adf279f45ef5391f8d111892118753e",
+                "ports": [
+                  {
+                    "containerPort": 9090,
+                    "name": "http"
+                  }
+                ],
+                "resources": {
+                  "requests": {
+                    "cpu": "50m",
+                    "memory": "128Mi"
+                  },
+                  "limits": {
+                    "cpu": "300m",
+                    "memory": "256Mi"
+                  }
+                },
+                "securityContext": {
+                  "allowPrivilegeEscalation": false,
+                  "readOnlyRootFilesystem": true,
+                  "capabilities": {
+                    "drop": [
+                      "ALL"
+                    ]
+                  }
+                },
+                "readinessProbe": {
+                  "httpGet": {
+                    "path": "/-/ready",
+                    "port": 9090
+                  },
+                  "periodSeconds": 5
+                },
+                "livenessProbe": {
+                  "httpGet": {
+                    "path": "/-/healthy",
+                    "port": 9090
+                  },
+                  "initialDelaySeconds": 30,
+                  "periodSeconds": 10
+                },
+                "volumeMounts": [
+                  {
+                    "name": "data",
+                    "mountPath": "/prometheus"
+                  },
+                  {
+                    "name": "tmp",
+                    "mountPath": "/tmp"
+                  },
+                  {
+                    "name": "config",
+                    "mountPath": "/etc/prometheus",
+                    "readOnly": true
+                  }
+                ],
+                "args": [
+                  "--config.file=/etc/prometheus/prometheus.yml",
+                  "--storage.tsdb.path=/prometheus",
+                  "--storage.tsdb.retention.time=6h",
+                  "--storage.tsdb.retention.size=200MB"
+                ]
+              }
+            ],
+            "volumes": [
+              {
+                "name": "data",
+                "emptyDir": {
+                  "sizeLimit": "256Mi"
+                }
+              },
+              {
+                "name": "tmp",
+                "emptyDir": {
+                  "sizeLimit": "32Mi"
+                }
+              },
+              {
+                "name": "config",
+                "configMap": {
+                  "name": "prometheus-config"
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "name": "prometheus",
+        "namespace": "durable-jobs-aws",
+        "labels": {
+          "part-of": "durable-jobs-reliability"
+        }
+      },
+      "spec": {
+        "type": "ClusterIP",
+        "selector": {
+          "app": "prometheus"
+        },
+        "ports": [
+          {
+            "port": 9090,
+            "targetPort": "http"
+          }
+        ]
+      }
+    },
+    {
+      "apiVersion": "apps/v1",
+      "kind": "Deployment",
+      "metadata": {
+        "name": "grafana",
+        "namespace": "durable-jobs-aws",
+        "labels": {
+          "part-of": "durable-jobs-reliability"
+        }
+      },
+      "spec": {
+        "replicas": 1,
+        "strategy": {
+          "type": "Recreate"
+        },
+        "selector": {
+          "matchLabels": {
+            "app": "grafana"
+          }
+        },
+        "template": {
+          "metadata": {
+            "labels": {
+              "app": "grafana"
+            }
+          },
+          "spec": {
+            "automountServiceAccountToken": false,
+            "nodeSelector": {
+              "kubernetes.io/arch": "amd64"
+            },
+            "securityContext": {
+              "runAsNonRoot": true,
+              "runAsUser": 472,
+              "runAsGroup": 472,
+              "fsGroup": 472,
+              "seccompProfile": {
+                "type": "RuntimeDefault"
+              }
+            },
+            "containers": [
+              {
+                "name": "grafana",
+                "image": "grafana/grafana:13.2.2@sha256:ac461fb352abc50da10a51c7d02462e9c05488f11f53f14b3ad79a8145f638a0",
+                "ports": [
+                  {
+                    "containerPort": 3000,
+                    "name": "http"
+                  }
+                ],
+                "resources": {
+                  "requests": {
+                    "cpu": "50m",
+                    "memory": "128Mi"
+                  },
+                  "limits": {
+                    "cpu": "300m",
+                    "memory": "256Mi"
+                  }
+                },
+                "securityContext": {
+                  "allowPrivilegeEscalation": false,
+                  "readOnlyRootFilesystem": true,
+                  "capabilities": {
+                    "drop": [
+                      "ALL"
+                    ]
+                  }
+                },
+                "readinessProbe": {
+                  "httpGet": {
+                    "path": "/api/health",
+                    "port": 3000
+                  },
+                  "periodSeconds": 5
+                },
+                "livenessProbe": {
+                  "httpGet": {
+                    "path": "/api/health",
+                    "port": 3000
+                  },
+                  "initialDelaySeconds": 30,
+                  "periodSeconds": 10
+                },
+                "volumeMounts": [
+                  {
+                    "name": "data",
+                    "mountPath": "/var/lib/grafana"
+                  },
+                  {
+                    "name": "tmp",
+                    "mountPath": "/tmp"
+                  },
+                  {
+                    "name": "config",
+                    "mountPath": "/etc/grafana/provisioning/datasources/lab.yml",
+                    "subPath": "datasources.yml",
+                    "readOnly": true
+                  },
+                  {
+                    "name": "config",
+                    "mountPath": "/etc/grafana/provisioning/dashboards/lab.yml",
+                    "subPath": "dashboards.yml",
+                    "readOnly": true
+                  },
+                  {
+                    "name": "config",
+                    "mountPath": "/etc/grafana/dashboards/lab.json",
+                    "subPath": "dashboard.json",
+                    "readOnly": true
+                  }
+                ],
+                "env": [
+                  {
+                    "name": "GF_SECURITY_ADMIN_PASSWORD",
+                    "valueFrom": {
+                      "secretKeyRef": {
+                        "name": "grafana-admin",
+                        "key": "password"
+                      }
+                    }
+                  },
+                  {
+                    "name": "GF_ANALYTICS_REPORTING_ENABLED",
+                    "value": "false"
+                  },
+                  {
+                    "name": "GF_ANALYTICS_CHECK_FOR_UPDATES",
+                    "value": "false"
+                  },
+                  {
+                    "name": "GF_USERS_ALLOW_SIGN_UP",
+                    "value": "false"
+                  }
+                ]
+              }
+            ],
+            "volumes": [
+              {
+                "name": "data",
+                "emptyDir": {
+                  "sizeLimit": "256Mi"
+                }
+              },
+              {
+                "name": "tmp",
+                "emptyDir": {
+                  "sizeLimit": "32Mi"
+                }
+              },
+              {
+                "name": "config",
+                "configMap": {
+                  "name": "grafana-provisioning"
+                }
+              }
+            ]
+          }
+        }
+      }
+    },
+    {
+      "apiVersion": "v1",
+      "kind": "Service",
+      "metadata": {
+        "name": "grafana",
+        "namespace": "durable-jobs-aws",
+        "labels": {
+          "part-of": "durable-jobs-reliability"
+        }
+      },
+      "spec": {
+        "type": "ClusterIP",
+        "selector": {
+          "app": "grafana"
+        },
+        "ports": [
+          {
+            "port": 3000,
+            "targetPort": "http"
+          }
+        ]
+      }
+    }
+  ]
+}

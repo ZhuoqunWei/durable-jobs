@@ -1,0 +1,64 @@
+# Offline Helm values only. Render with aws_ingress.py; do not install placeholders.
+clusterName: unconfigured
+region: unconfigured
+vpcId: unconfigured
+replicaCount: 2
+image:
+  repository: public.ecr.aws/eks/aws-load-balancer-controller
+  tag: v3.5.0@sha256:298acdff5a571731276aaea3d5cc450a264e4ad710a5bddf3e518f68a3f9f6cb
+serviceAccount:
+  create: true
+  name: aws-load-balancer-controller
+  annotations: {}
+  automountServiceAccountToken: true
+rbac:
+  create: true
+ingressClass: durable-jobs-internal
+createIngressClassResource: true
+ingressClassParams:
+  create: false
+watchNamespace: durable-jobs-aws
+disableIngressClassAnnotation: true
+disableIngressGroupNameAnnotation: true
+defaultTargetType: ip
+defaultLoadBalancerScheme: internal
+enableBackendSecurityGroup: false
+enableManageBackendSecurityGroupRules: false
+enableServiceMutatorWebhook: false
+enablePodReadinessGateInject: false
+enableShield: false
+enableWaf: false
+enableWafv2: false
+enableCertManager: false
+keepTLSSecret: true
+tolerateNonExistentBackendService: false
+tolerateNonExistentBackendAction: false
+controllerConfig:
+  featureGates:
+    EnableServiceController: false
+    ALBGatewayAPI: false
+    NLBGatewayAPI: false
+    GlobalAcceleratorController: false
+    EnableCertificateManagement: false
+    LBCapacityReservation: false
+hostNetwork: false
+nodeSelector:
+  kubernetes.io/arch: amd64
+  kubernetes.io/os: linux
+podSecurityContext:
+  fsGroup: 65534
+  seccompProfile:
+    type: RuntimeDefault
+securityContext:
+  runAsNonRoot: true
+  readOnlyRootFilesystem: true
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop: [ALL]
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi

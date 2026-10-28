@@ -1,0 +1,6 @@
+# Copy into the isolated live deployment directory as backend.tf, NOT into
+# the offline validation build. Supply account-specific non-secret settings
+# from the private bootstrap record at terraform init. No credentials here.
+terraform {
+  backend "s3" {}
+}
